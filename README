@@ -1,0 +1,346 @@
+ANALIZA+VULNERABILITATI:
+-Functia principala pe care o numesc main se afla la adresa 0x080489A9:
+    -se dezactiveaza buffering-ul pentru stream-urile stdin si stdout
+    -se aloca memorie in spatiul adreselor virtuale folosind apelul functiei
+    mmap(0,1024,3,34,-1,0): -primul parametru indica adresa la care incepe
+                    alocare iar in cazul in care adresa este NULL (cazul
+                    de fata), adresa va fi aleasa de kernel
+                    -al doilea parametru =cati bytes se aloca (lungimea)
+                    -al treilea parametru reprezinta protectia memoriei
+                    -al patrulea parametru (flags) transmite informatii
+                    despre cum se lucreaza cu zona de memorie
+                    -al cincilea parametru este descriptorul de fisier
+                    -al saselea argument reprezinta offset-ul
+    -rezultatul acestei alocari (adresa de unde incepe noua memorie alocata)
+    se salveaza in variabila de la adresa 0x0804A3E8 din zona de memorie 
+    .bss (este o variabila neinitializata) pe care o notez addr
+    -se afiseaza mesajul incadrat care incepe cu "Welcome" (procedura de
+    la adresa 0x08048635 pe care o notez xor_0xAA nu face decat xor pentru
+    fiecare byte din mesajul primit ca prim parametru, avand ca al doilea
+    parametru numarul de bytes ai mesajului)
+    -se afiseaza lista de optiuni prin apelarea procedurii de la adresa
+    0x08048871 pe care o numesc afi_optiuni, care are rolul de afisa acest
+    mesaj 
+    -se intra in procedura de la adresa 0x08048A0E pe care o numesc 
+    repeta_program, care apeleaza pe rand procedurile afi_optiuni, citire_ch
+    ( procedura de la adresa 0x0804893A) si repeta_program (se repeta
+    procedura)
+-citire_ch are rolul de a citi numarul optiunii si de 
+    -se creaza o variabila locala a carei adresa e folosita pentru a citi
+    un numar intreg de o cifra in functie de numarul citit se pot face 6
+    jump-uri:
+
+    *)daca numarul e 0, se solicita optiunea 0 din meniu prin apelarea
+    procedurii pe care o notez caz_0, de la adresa 0x08048679.Caz_0:
+    -se aloca un buffer de 32 de bytes care se initializeaza cu 0
+    -se afiseaza mesajul "Enter the valid serial:"
+    -se citesc 32 de caractere in buffer
+    -se apeleaza procedura de la adresa 0x08048A5D, pe care o numesc 
+    serial_key_verif, primind ca parametru adresa buffer-ului
+    -daca rezultatul procedurii serial_key_verif este 0, se afiseaza
+    mesajul "Nope, try again." iar in caz contrar se afiseaza mesajul
+    "Correct!".
+        *)serial_key_verif:
+        -se iau pe rand fiecare caracter din sirul primit ca paramteru si
+        daca in urma aplicarii unor operatii pe fiecare in parte nu se 
+        ajunge la un rezultat dorit, apelul procedurii de la 0x08048A52
+        ,pe care o numesc verif, va face EAX-ul 0, ceea ce va determina ca
+        rezultatul lui serial_key_verif sa fie 0 si se va afisa mesajul
+        "Nope, try again.". Deci, fiecare caracter al sirului trebuie sa
+        indeplineasca conditiile din serial_key_verif.
+        -procedura verif primeste ca parametru EFLAGS iar in cazul in care
+        ZF nu e setat (in urma cmp-ului anterior), EAX devine 0
+        -procedura de la adresa 0x08048A20 pe care o numesc clear_reg
+        seteaza la 0 registrii ah,ecx,edx si esi si este folosita la trecerea
+        la urmatoarele caractere din sir care verifica niste conditii
+        1)Pentru caracterul 1, avem operatiile:
+            dl<<4=0xf0^0xc0=48=00110000 => primii 4 biti ai lui dl sunt 0011
+            dl>>4=0xf^9=6=00000110 => ultiii 4 biti ai lui dl sunt 0110
+            deci dl=01100011=99 =>caracterul 'c'
+            ,unde ^ este xor
+        2)Pentru caracterele 2,3 si 4 (a,b si c), avem de rezolvat sistemul:
+        a+c=158=0x9E
+        b+c=152=0x98
+        a+b=106=0x6A
+        Se obtin valorile:  a=56 => a='8'
+                            b=50 => b='2'
+                            c=102 => c='f'
+        3)Pentru caracterele 5 si 6 (a si b) se pun pe rand caracterele 5 si
+        6 in registrul DL si se apeleaza functia de la 0x08048A29 pe care o
+        numesc verif_ch_5_6 si care functioneaza dupa urmatorul algoritm:
+        {if(DL<48) {EAX=0; return;}
+        if(DL<=57) {DL-=48; return;}
+        if(DL<97) return;
+        if(DL>102) {EAX=0; return;}
+        DL-=87;
+        return;}
+        Se observa ca pentru a se afisa mesajul "Correct" caracterele trebuie
+        sa treaca prin ramurile care nu contin EAX=0
+        In urma aplicarii verif_ch5_6 pe ch5 si ch6 se obtine sistemul:
+        a+b=3 =>a=1
+        b=2   =>b=2
+        Singura ramura a verif_ch_5_6 pentru care se poate obtine un DL mai
+        mic ca 3 si un EAX diferit de 0 este: if(DL<=57) {DL-=48; return;}
+        deci     => ch5=1+48=49 => ch5='1'
+                 => ch6=2+48=50 => ch6='2'
+        4)Pentru caracterele 7 si 8 (a si b), avem:
+        a^b=0 =>a=b
+        a&b=0x64 Cum a=b=>a&b=a
+        b^0xff=0x9b =>b=0xff^0x9b=0x64 =>se verifica si relatia anterioara
+            =>a=0x64=100='d'
+            =?b=0x64=100='d'
+        5)Pentru caracterul 9 (dl)
+        dl<<4=0xf0^0x60=0x90 =>primiul nibble a lui dl e 9
+        dl>>4=0xf^0xc=0x03 =>al doilea nibble a lui dl e 3
+            =>dl=0x39=57 =>'9'
+        6)Pentru caracterul 10 (dl)
+        dl<<4=0xf0^0xc0=0x30 =>primiul nibble a lui dl e 3
+        dl>>4=0xf^0xc=0x03 =>al doilea nibble a lui dl e 3
+            =>dl=0x33=51 =>'3'
+        7)Pentru caracterele 11,12,13 (a,b si c)
+        a+c=152=0x98
+        b+c=150=0x96
+        a+b=104=0x68
+            =>a=53='5'
+            =>b=51='3'
+            =>c=99='c'
+        8)Pentru caracterele 14,15 (a si b)
+        a^b=4
+        a&b=0x32
+        b^0xff=0xc9 =>b=0xff^0xc9=0x36 
+                    =>a=4^b=4^0x36=0x32
+            =>a=0x32=50='2'
+            =>b=0x36=54='6'
+    -se verifica daca suma primelor 15 numere din sir e 1021 iar in caz 
+    contrar procedura intoarce 0 si nu se va afisa mesajul "Correct"
+    Deci, serial key-ul va avea primele 15 caractere: c82f12dd9353c26
+    
+    *)daca numarul e 1 se solicita optiunea 1 din meniu prin apelarea
+    procedurii pe care o notez caz_1, de la adresa 0x080486EA.Caz_1:
+        -se aloca un buffer pe stiva de 20 de bytes
+        -se afiseaza mesajul: "Enter desired username: "
+        -se citesc maxim 20 de caractere de la tastatura +un caracter NULL
+        in buffer (scanf("%20s",buffer);)
+        -vulnerabilitate (stack buffer overflow):
+            La citirea a 20 (sau mai multe) caractere, se va depasi 
+        buffer-ul cu un byte si se suprscrie cel mai putin semnificativ byte
+        al ebp-ului salvat cu 0x0 (NULL) , putandu-se obtine cel mult crash-
+        uirea programului (SIGSEGV), prin suprascrierea lui ebp cu o adresa
+        de pe stiva invalida. Nu se poate obtine controlul aplicatiei.
+        (de exemplu, daca se da un username: 20 de a)
+
+    *)daca numarul e 2 se solicita optiunea 2 din meniu prin apelarea
+    procedurii pe care o notez caz_2, de la adresa 0x08048710
+        -se aloca un buffer pe stiva de 16 bytes
+        -se afiseaza mesajul: "Enter desired address: "
+        -se citesc maxim 20 de caractere de la tastatura +un caracter NULL
+        in buffer (scanf("%20s",buffer);)
+        -vulnerabilitate (stack buffer overflow):
+            La citirea a 20 (sau mai multe) caractere, se va depasi
+        buffer-ul cu maxim 4 bytes si se suprscrie urmatorul byte cu 0x0
+        (NULL) , putandu-se obtine cel mult suprascrierea ebp-ului si supra-
+        scrierea celui mai putin semnificativ byte din adresa de return cu 
+        0x0( caracterul NULL). Prin modificarea edresei ebp-ului sau a adresei
+        de return (a celui mai putin semnificativ byte a ei) salvate pe stiva
+        cu niste valori invalide, se poate obtine crash-uirea programului.
+        (de exemplu, daca se da o adresa: 16 de a)
+    *)daca numarul e 3 se solicita optiunea 3 din meniu prin apelarea proce-
+    durii pe care o notez caz_3, de la adresa 0x08048736
+        -se aloca un buffer pe stiva de 4 octeti
+        -se citesc 24 de caractere in buffer 
+        ( read(0,buffer,24)- citeste de la stdin (primul parametru) in buffer
+        (al doilea parametru) cel mult 24 de caractere (ultimul parametru) )
+        -vulnerabilitatea (stack buffer overflow):
+            La citirea a mai mult de 8 octeti (suficient pentru a suprascrie
+         buffer-ul si adresa vechiului ebp, se poate suprascrie adresa de 
+         return si inca alte 3 adrese de deasupra acesteia (in stiva) 
+         (1 adresa are 4 octeti =>3*4=12 octeti ramasi ). Astfel, se poate
+         obtine controlul aplicatiei prin alterarea control flow-ului.
+
+    *)daca numarul e 4 se solicita optiunea 4 din meniu prin apelarea
+    procedurii pe care o notez cu caz_4, de la adresa 0x0804874E
+        -se aloca pe stiva un buffer de 1025 de bytes
+        -se verifica pe rand daca variabilele initializate cu 1: ds:0x804A254,
+        ds:0x804A258 si ds:0x804A25C sunt 0, iar in caz contrar se afiseaza
+        mesajul "Vault is still locked." si se iese din procedura
+        -in cazul in care toate cele 3 variabile au obtinut valoarea 0, se 
+        citesc de la stdin in buffer 1024 de caractere (read(0,buffer,1024))
+        -pentru a se putea apela functii pentru string-uri, ultimul byte al
+        buffer-ului (al 1025-lea) se face 0 (caracterul NULL)
+        -se apeleaza xor_0xAA pe memoria de la adresa addr (alocata in main)
+        -se apeleaza procedura de la adresa 080485EB, pe care o numesc
+        suma_bytes, avand buffer-ul ca parametru.suma_bytes:
+            -realizeaza suma primilor 1024 de bytes ai buffer-ului primit ca
+            parametru
+            -in cazul in care aceasta suma este egala cu 0x1234=74565, se 
+            intoarce 1 (EAX se seteaza 1) iar in caz contrar intoarce 0
+            (EAX se seteaza 0)
+        -daca rezultatul intors de suma_bytes este 1 (deci daca suma caracte-
+        relor din buffer e 74565) se trece mai departe iar in caz contrar
+        se paraseste procedura
+        -se verifica daca subsirul "Remus" se gaseste in sirul indicat de 
+        buffer (strstr(buffer,"Remus")). In cazul in care subsirul se gaseste
+        ( deci rezultatul intors de strstr e !=NULL=0x0), se trece mai de-
+        parte iar in caz contrar se paraseste procedura.
+        -se verifica daca subsirul "Bompa" se gaseste in sirul indicat de
+        buffer (strstr(buffer,"Bompa")). In cazul in care subsirul se gaseste
+        ( deci rezultatul intors de strstr e !=NULL=0x0), se trece mai de-
+        parte iar in caz contrar se paraseste procedura.
+        -se apeleaza functia mprotect(addr,1024,5), unde:
+            addr-adresa memoriei alocate in main
+            1024-numarul de bytes ai zonei de memorie incepand de la addr, a
+                carei protectie se va schimba
+            5-protectia zonei de memorie
+        -se apeleaza addr (opcode-ul scris la adresa indicata de addr) cu
+        buffer-ul ca parametru (buffer-ul se salveaza in EDX iar addr in EAX)
+    *)daca numarul e 5, se afiseaza mesajul "Bye." si se apeleaza functia
+    exit(1), ceea ce determina terminarea programului
+    *)daca se citeste alta cifra, se afiseaza mesajul "Unknown option."(caz 6)
+    La sfarsitul cazurilor 0,1,2,3,4,6 se iese din procedura citire_ch si se
+    reintra in procedura repeta_program
+-Functia care afiseaza "Win" sau "Try harder" se afla la adresa 0x0804882B si o
+numesc win:
+	-realizeaza comparatia:
+	[((*addr)<<16)^(*addr)]*0x45d9f3a==ds:0x0804A260    (<< -shl iar ^ -xor)
+	unde ds:0x0804A260 este o variabila initializata cu 1, iar cum 0x45d9f3a
+	este un numar par (0xa se termina cu 0 in reprezentare binara) inseamna
+	ca numai modificand aceasta variabila se poate verifica egalitatea
+	-daca rezultatul este true, se afiseaza "Win!". In caz contrar, se 
+	afiseaza "Try harder!".
+	-se iese din procedura
+EXPLOATARE:
+    -pentru a putea continua procedura caz_4, trebuie parcurse cele 3 proceduri
+corespunzatoare celor 3 variabile: ds:0x804A254, ds:0x804A258 si ds:0x804A25C
+,care le atribuie acestora valoarea 0:
+	*)procedura de la adresa 0x08048895, pe care notez var_1:
+	-pune valoarea 0 in variabila ds:0x804A254
+	-adauga cod masina in dwords 1 si 2 (primii 2) ai memoriei de la 
+	adresa addr
+	*)procedura de la adresa 0x080488BA, pe care o notez var_2:
+	-primeste ca parametru un dword
+	-se verifica daca parametrul este =0xdeadc0de. In caz negativ, se iese 
+	din procedura	
+	-pune valoarea 0 in variabila ds:0x804A258
+	-adauga cod masina in dwords 3 si 4 (urmatorii 2) ai memoriei de la
+ 	adresa addr
+	*)procedura de la adresa 0x080488EA pe care o notez var_3:
+	-primeste ca parametri 2 dwords (a la ebp+8 si b la ebp+12)	
+	-se verifica daca a+b=0xdeadbeef. In caz contrar se iese din procedura
+     	-se verifica daca a-b=0x13371337. In caz contrar se iese din procedura
+     	-pune valoarea 0 in variabila ds:0x804A25C
+     	-adauga cod masina in dwords 5 si 6 (urmatorii 2) ai memoriei de la adre-
+     	sa addr
+     	-Din calcule, am determinat parametrii: a=0xf8f26913
+                                             b=0xe5bb55dc
+ -Astfel, pentru a debloca vault-ul, payload-ul contine "3\n", pentru a intra 
+ inprocedura caz_3, a carei vulnerabilitate vreau sa o exploatez, urmat de: 
+	"aaaa"-pentru a suprascrie adresa buffer-ului
+	0x0-pentru a suprascrie ebp_old, dupa instructiunea leave, ebp-ul
+		devenind NULL (0x0)
+	var_1-pentru a suprascrie adresa de return care va fi cea a procedurii
+		var_1
+	var_2-pentru a suprascrie adresa de return din procedura var_1, care va
+		fi cea a procedurii var_2
+	case_3-pentru a suprascrie adresa de return a procedurii var_2. In felul
+		acesta, se mai poate exploata odata vulnerabilitatea procedurii
+		case_3 pentru a trece si prin procedura var_3
+	0xdeadc0de-pentru a suprascrie parametrul procedurii var_2
+ 
+ Stiva inaintea apelului functiei read in caz_3 si dupa aceea:
+     ...                     ...
+     0x1                     0x1
+     ret_din_main            ret_din_main     
+     0x0                     0x0                  ^
+     ret_din_citire_ch       0xdeadc0de           | adresele cresc
+     old_ebp                 case_3               |
+     3                       var_2
+     ret_din_caz_3           var_1
+     ebp_old                 0x0
+     buffer		     aaaa
+In felul acesta, se trece prin procedurile var_1 si var_2 si se revine in 
+procedura caz_3
+Se mai introduc in payload: 
+	4 de a- pentru a suprascrie buffer-ul
+	0x0- pentru a suprascrie ebp-ul
+	var_3- pentru a suprascrie adresa de return din procedura caz_3
+	caz_4- pentru a suprascrie valoarea de return din procedura var_3
+	0xf8f26913- pentru a suprascrie valoarea primului parametru a procedurii
+			var_3
+	0xe5bb55dc- pentru a suprascrie valoarea celui de al doilea parametru a
+			procedurii var_3
+
+Stiva inaintea apelului functiei read in al doilea apel al procedurii caz_3 si
+dupa aceea:
+     ...                     ...
+     0x1                     0xe5bb55dc
+     ret_din_main            0xf8f26913
+     0x0                     caz_4               ^
+     0xdeadc0de              var_3               | adresele cresc
+     ebp_old                 0x0                 |
+     buffer                  aaaa
+ In felul acesta, se trece si prin procedura var_3 si se deblocheaza vault-ul.
+ La sfarsitul parcurgerii procedurii caz_4 (presupunand ca buffer-ul citit
+ indeplineste conditiile de a contine numele si prenumele si de a avea suma 
+ cifrelor corespunzatoare), se va apela zona de memorie indicata de addr, care
+ contine opcode-ul:
+	push ebp
+	mov ebp,esp
+	sub esp,0x3eb
+	cld
+	mov esi,[ebp+8]
+	mov edi,esp
+	mov ecx,0x400
+	rep movs edi,esi
+	leave
+	ret
+Deci, procedura apelata scrie buffer-ul primit ca parametru intr-un nou buffer.
+Cum buffer-ul primit ca parametru are 1024 de bytes iar cel alocat are 0x3e8=
+1000 byte, se poate exploate vulnerabilitatea de buffer overflow prin suprascri-
+erea adresei de return a acestei proceduri. Cum stiva pe portiunea care ma inte-
+reseaza dupa apelul lui addr este :
+
+	buffer_citit (1024 de octeti)
+	3 bytes nefolositi
+	ebp_old
+	ret_din_addr
+	ebp_old
+	buffer_alocat (1000 de octeti)
+
+Se observa ca primele 9 caractere din buffer_citit se suprascriu cu ultimele
+Eu doresc sa inserez la adresa la care incepe buffer_citit (care e 
+salvata in edx) opcode care sa modifice variabila ds:0x0804A260 din procedura
+win astfel incat aceasta sa satisfaca coditiile din win, sa apelez procedura
+win si apoi sa apelez adresa din program care apeleaza exit (0x08048994), 
+voi insera opcode-ul:
+	mov eax,ds:0x0804a3e8e8 (=addr)		a1 e8 a3 04|08
+	mov edx,eax				89 c2
+	shl eax,0x10				c1|e0 10
+	xor eax,edx				31 d0|
+	imul eax,0x045D9F3A			69 c0 3a 9f|5d 04 
+	mov ds:0x0804a260,eax (=var,eax)	a3 60|a2 04 08
+	mov eax,0x0804882b (=win)		b8|2b 88 04 08|
+	call eax				ff d0
+	mov eax,0x08048994 (=exit)		b8 94|89 04 08
+	call eax				ff|d0
+Se obtin 37 de caractere pe care le voi citi in felul urmator:
+	-primele 9 caractere ale opcode-ului vor fi ultimele caractere citite
+	in buffer_citit (deoarece primele caractere din buffer_citit se 
+	suprascriu cu ultimele)
+	-urmatoarele 28 de caractere ale opcode-ului vor fi caracterele 10-37
+	citite in buffer_citit
+Astfel, la un apel call edx, se vor executa instructiunile create
+Aleg adresa call_edx=0x0804858d (o adresa in program unde se apeleaza edx) ca
+adresa de return din procedura indicata de addr. 
+Facand calcule astfel incat suma caracterelor sa fie 74565, se obtine buffer-ul
+citit:
+     ^	primele 9 caractere opcode
+     |	7 de 'H'                      ^
+  24 |	call_edx                      | adresele cresc
+  ch v	0x0                           |   
+     ^	39 de 'H'
+     |	914 de 'G'
+1000 |	"RemusBompa"
+  ch |	urmatoarele 28 de caractere opcode
+     v	9 de 'G'                              <--de aici se incepe scrierea
+Aceste caractere se introduc in payload pentru a se apela functia win avand
+conditia respectata astfel incat sa se afiseze mesajul "Win!".
